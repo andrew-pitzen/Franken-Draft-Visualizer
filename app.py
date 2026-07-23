@@ -14,49 +14,35 @@ def draft_store():
 
 STORE = draft_store()
 
-def encode_draft(data):
-    raw = json.dumps(data).encode("utf-8")
-
-    compressed = zlib.compress(raw, level=9)
-
-    return base64.urlsafe_b64encode(compressed).decode()
-
-
-def decode_draft(encoded):
-    compressed = base64.urlsafe_b64decode(encoded.encode())
-
-    raw = zlib.decompress(compressed)
-
-    return json.loads(raw.decode())
 
 params = st.query_params
 
-if "draft" in params:
+if "draft_loaded" not in st.session_state:
+    st.session_state.draft_loaded = False
 
-    encoded = params["draft"]
+if "draft" in params and not st.session_state.draft_loaded:
 
-    if isinstance(encoded, list):
-        encoded = encoded[0]
+    draft_id = params["draft"]
 
-    data = STORE.get(encoded)
+    if isinstance(draft_id, list):
+        draft_id = draft_id[0]
+
+    data = STORE.get(draft_id)
 
     if data is None:
         st.error("Draft not found.")
         st.stop()
 
     st.session_state.player_names = data["player_names"]
-
     st.session_state.master_lists = [
         DraftConsol(text)
         for text in data["texts"]
     ]
-
-    st.session_state.player_hidden = [
-        False
-    ] * len(st.session_state.player_names)
+    st.session_state.player_hidden = [False] * len(data["player_names"])
 
     st.session_state.round_num = 0
     st.session_state.page = "viewer"
+    st.session_state.draft_loaded = True
 
 CARD_HEIGHT = 155
 
