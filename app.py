@@ -151,7 +151,7 @@ def replace_icons(text):
 
         name = match.group(1)
 
-        path = f"imgs/Icons/{name}.png"
+        path = f"imgs/icons/{name}.png"
 
         if os.path.exists(path):
             return (
