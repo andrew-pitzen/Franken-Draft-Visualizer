@@ -97,17 +97,18 @@ ICON_ROOT = Path("imgs/Icons")
 
 ICON_INDEX = {}
 
-for file in ICON_ROOT.rglob("*.png"):
-    ICON_INDEX[file.stem.lower()] = str(file)
+for file in ICON_ROOT.rglob("*"):
+    if file.is_file() and file.suffix.lower() == ".png":
+        ICON_INDEX[file.stem.lower()] = str(file)
 
 IMG_ROOT = Path("imgs")
 
 IMAGE_INDEX = {}
 
-for file in IMG_ROOT.rglob("*.png"):
-    # relative path with lowercase directory and filename
-    key = str(file.relative_to(IMG_ROOT)).replace("\\", "/").lower()
-    IMAGE_INDEX[key] = str(file)
+for file in IMG_ROOT.rglob("*"):
+    if file.is_file() and file.suffix.lower() == ".png":
+        key = str(file.relative_to(IMG_ROOT)).replace("\\", "/").lower()
+        IMAGE_INDEX[key] = str(file)
 
 st.sidebar.write("Images:", len(IMAGE_INDEX))
 st.sidebar.write("Icons:", len(ICON_INDEX))
