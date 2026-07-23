@@ -100,6 +100,17 @@ ICON_INDEX = {}
 for file in ICON_ROOT.rglob("*.png"):
     ICON_INDEX[file.stem.lower()] = str(file)
 
+IMG_ROOT = Path("imgs")
+
+IMAGE_INDEX = {}
+
+for file in IMG_ROOT.rglob("*.png"):
+    # relative path with lowercase directory and filename
+    key = str(file.relative_to(IMG_ROOT)).replace("\\", "/").lower()
+    IMAGE_INDEX[key] = str(file)
+
+def find_image(relative_path: str):
+    return IMAGE_INDEX.get(relative_path.lower())
 
 tile_check = re.compile(r"\((\d+)\)")
 icon_pattern = re.compile(r":([^:]+):")
@@ -125,14 +136,14 @@ def image_path(key: str, value: str):
         match = tile_check.search(lines[0])
 
         if match:
-            return f"imgs/Tiles/ST_{match.group(1)}.png"
+            return find_image(f"Tiles/ST_{match.group(1)}.png")
 
         return None
 
     if key == "COMMODITIES":
-        return f"imgs/{key}/{second_line}.png"
+        return find_image(f"{key}/{second_line}.png")
 
-    return f"imgs/{key}/{first_line}.png"
+    return find_image(f"{key}/{first_line}.png")
 
 def replace_icons(text):
 
@@ -303,7 +314,7 @@ def render_pick(key, value):
                     else:
                         html += f":{part}:"
 
-            extra_image = f"imgs/Additional Components/{extra_name}.png"
+            extra_image = find_image(f"Additional Components/{extra_name}.png")
 
             if os.path.exists(extra_image):
                 encoded = image_to_base64(extra_image)
