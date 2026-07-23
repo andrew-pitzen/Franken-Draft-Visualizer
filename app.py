@@ -93,7 +93,7 @@ TALLY_KEY_ORDER = [
 
 from pathlib import Path
 
-ICON_ROOT = Path("imgs/icons")
+ICON_ROOT = Path("imgs/Icons")
 
 ICON_INDEX = {}
 
@@ -109,8 +109,16 @@ for file in IMG_ROOT.rglob("*.png"):
     key = str(file.relative_to(IMG_ROOT)).replace("\\", "/").lower()
     IMAGE_INDEX[key] = str(file)
 
-def find_image(relative_path: str):
-    return IMAGE_INDEX.get(relative_path.lower())
+st.sidebar.write("Images:", len(IMAGE_INDEX))
+st.sidebar.write("Icons:", len(ICON_INDEX))
+
+def find_image(relative_path):
+    key = relative_path.lower()
+
+    if key not in IMAGE_INDEX:
+        st.sidebar.write("Missing:", key)
+
+    return IMAGE_INDEX.get(key)
 
 tile_check = re.compile(r"\((\d+)\)")
 icon_pattern = re.compile(r":([^:]+):")
@@ -151,7 +159,7 @@ def replace_icons(text):
 
         name = match.group(1)
 
-        path = f"imgs/icons/{name}.png"
+        path = f"imgs/Icons/{name}.png"
 
         if os.path.exists(path):
             return (
