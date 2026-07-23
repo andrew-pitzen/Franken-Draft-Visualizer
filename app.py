@@ -548,18 +548,26 @@ def viewer_page():
     max_rounds = max(len(player) for player in master_lists)
 
     def prev_round():
+        if max_rounds <= 1:
+            return
         st.session_state.round_num = (
                                              st.session_state.round_num - 1
                                      ) % max_rounds
         st.session_state.round_selector = st.session_state.round_num
 
     def next_round():
+        if max_rounds <= 1:
+            return
         st.session_state.round_num = (
                                              st.session_state.round_num + 1
                                      ) % max_rounds
         st.session_state.round_selector = st.session_state.round_num
 
     def select_round():
+        if max_rounds <= 1:
+            st.session_state.round_num = 0
+            return
+
         st.session_state.round_num = st.session_state.round_selector
     # --------------------
     # Sidebar
@@ -594,10 +602,16 @@ def viewer_page():
     if "round_selector" not in st.session_state:
         st.session_state.round_selector = st.session_state.round_num
 
+    single_round = max_rounds <= 1
+
     left, middle, right = st.columns([1, 2, 1])
 
     with left:
-        st.button("⬅ Previous", on_click=prev_round)
+        st.button(
+            "⬅ Previous",
+            on_click=prev_round,
+            disabled=single_round,
+        )
 
     with middle:
         st.selectbox(
@@ -607,17 +621,21 @@ def viewer_page():
             format_func=lambda x: f"Round {x + 1}",
             label_visibility="collapsed",
             on_change=select_round,
+            disabled=single_round,
         )
-    with right:
-        st.button("Next ➡", on_click=next_round)
 
-    round_num = st.session_state.round_num
+    with right:
+        st.button(
+            "Next ➡",
+            on_click=next_round,
+            disabled=single_round,
+        )
 
     st.markdown(
         "<hr style='margin:6px 0 10px 0;'>",
         unsafe_allow_html=True,
     )
-
+    round_num = st.session_state.round_num
     # ==================================================
     # Player Grid goes HERE
     # ==================================================
