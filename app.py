@@ -1,8 +1,62 @@
 import os
 import re
 import streamlit as st
-
+import json
+import zlib
+import base64
 from DraftConsol import DraftConsol
+
+import secrets
+
+@st.cache_resource
+def draft_store():
+    return {}
+
+STORE = draft_store()
+
+def encode_draft(data):
+    raw = json.dumps(data).encode("utf-8")
+
+    compressed = zlib.compress(raw, level=9)
+
+    return base64.urlsafe_b64encode(compressed).decode()
+
+
+def decode_draft(encoded):
+    compressed = base64.urlsafe_b64decode(encoded.encode())
+
+    raw = zlib.decompress(compressed)
+
+    return json.loads(raw.decode())
+
+params = st.query_params
+
+if "draft" in params:
+
+    encoded = params["draft"]
+
+    if isinstance(encoded, list):
+        encoded = encoded[0]
+
+    data = STORE.get(encoded)
+
+    if data is None:
+        st.error("Draft not found.")
+        st.stop()
+
+    st.session_state.player_names = data["player_names"]
+
+    st.session_state.master_lists = [
+        DraftConsol(text)
+        for text in data["texts"]
+    ]
+
+    st.session_state.player_hidden = [
+        False
+    ] * len(st.session_state.player_names)
+
+    st.session_state.round_num = 0
+    st.session_state.page = "viewer"
 
 CARD_HEIGHT = 155
 
@@ -475,13 +529,29 @@ def home_page():
             st.warning("Enter at least one player.")
             return
 
+        data = {
+            "player_names": player_names,
+            "texts": [
+                st.session_state.home_texts[i]
+                for i in range(6)
+                if st.session_state.home_texts[i].strip()
+            ]
+        }
+
+        # Load into current session
         st.session_state.player_names = player_names
         st.session_state.master_lists = master_lists
-        st.session_state.player_hidden = (
-            [False] * len(player_names)
-        )
+        st.session_state.player_hidden = [False] * len(player_names)
         st.session_state.round_num = 0
         st.session_state.page = "viewer"
+
+        # Update URL
+        draft_id = secrets.token_urlsafe(6)
+
+        STORE[draft_id] = data
+
+        st.query_params.clear()
+        st.query_params["draft"] = draft_id
 
         st.rerun()
 def viewer_page():
