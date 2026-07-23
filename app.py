@@ -4,6 +4,9 @@ import streamlit as st
 
 from DraftConsol import DraftConsol
 
+CARD_HEIGHT = 155
+
+
 st.set_page_config(
     page_title="Draft Visualizer",
     layout="wide"
@@ -202,7 +205,7 @@ def render_pick(key, value):
 
             st.markdown(f"""
             <div style="
-                height:170px;
+                height:{CARD_HEIGHT}px;
                 display:flex;
                 align-items:center;
                 justify-content:center;
@@ -238,8 +241,7 @@ def render_pick(key, value):
 
             display_lines.append(line)
 
-        html = "<br>".join(display_lines)
-        html = convert_unit_lines(html)
+        html = convert_unit_lines(display_lines)
 
         # Replace icons
         parts = icon_pattern.split(html)
@@ -254,27 +256,31 @@ def render_pick(key, value):
                     encoded = image_to_base64(icon_image)
                     rendered += (
                         f'<img src="data:image/png;base64,{encoded}" '
-                        'style="height:20px;vertical-align:middle;margin:0 2px;">'
+                        'style="height:25px;display:block;">'
                     )
                 else:
                     rendered += f":{part}:"
 
         st.markdown(f"""
+        <div style="
+            height:{CARD_HEIGHT-20}px;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            margin-bottom:2px;
+        ">
             <div style="
-                height:220px;
                 display:flex;
-                align-items:center;
                 justify-content:center;
-                text-align:center;
-                margin-bottom:8px;
-                font-size:1rem;
-                line-height:1.5;
+                align-items:center;
+                alight-content:center;
+                gap:2px;
+                flex-wrap:wrap;
             ">
-                <div>
-                    {rendered}
-                </div>
+                {rendered}
             </div>
-            """, unsafe_allow_html=True)
+        </div>
+        """, unsafe_allow_html=True)
 
         st.markdown("</div>", unsafe_allow_html=True)
     # Card name
@@ -322,28 +328,6 @@ def render_pick(key, value):
                         )
                     else:
                         html += f":{part}:"
-
-            extra_image = find_image(f"Additional Components/{extra_name}.png")
-
-            if os.path.exists(extra_image):
-                encoded = image_to_base64(extra_image)
-
-                st.markdown(f"""
-                <div style="
-                    height:170px;
-                    display:flex;
-                    align-items:center;
-                    justify-content:center;
-                    margin-bottom:2px;
-                ">
-                    <img src="data:image/png;base64,{encoded}"
-                         style="
-                             max-height:155px;
-                             max-width:100%;
-                             object-fit:contain;
-                         ">
-                </div>
-                """, unsafe_allow_html=True)
 
             st.markdown(
                 f"<div style='text-align:center;font-weight:bold'>{html}</div>",
@@ -710,19 +694,20 @@ def build_tally(round_num):
             # -----------------------------
             # Balance columns
             # -----------------------------
-            left_sections = []
-            right_sections = []
+            total_height = sum(section["height"] for section in sections)
 
-            left_height = 0
-            right_height = 0
+            running_height = 0
+            split_index = len(sections)
 
-            for section in sections:
-                if left_height <= right_height:
-                    left_sections.append(section)
-                    left_height += section["height"]
-                else:
-                    right_sections.append(section)
-                    right_height += section["height"]
+            for i, section in enumerate(sections):
+                running_height += section["height"]
+
+                if running_height >= total_height / 2:
+                    split_index = i + 1
+                    break
+
+            left_sections = sections[:split_index]
+            right_sections = sections[split_index:]
 
             # -----------------------------
             # Render helper
@@ -859,7 +844,7 @@ def extract_extra_components(lines):
     return extras
 
 
-def convert_unit_lines(text):
+def convert_unit_lines(lines):
     UNIT_MAP = {
         "fighter": "fighter",
         "fighters": "fighter",
@@ -872,7 +857,7 @@ def convert_unit_lines(text):
 
     icons = []
 
-    for line in text.split("<br>"):
+    for line in lines:
         line = line.strip()
         if not line:
             continue
