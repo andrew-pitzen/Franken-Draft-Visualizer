@@ -5,6 +5,7 @@ import json
 import zlib
 import base64
 from DraftConsol import DraftConsol
+import html
 
 import secrets
 
@@ -103,8 +104,8 @@ defaults = {
     "player_names": [],
     "master_lists": [],
     "player_hidden": [],
+    "summary_index": 0,
     "round_num": 0,
-
     "home_names": [""] * 6,
     "home_texts": [""] * 6,
 }
@@ -134,6 +135,23 @@ TALLY_KEY_ORDER = [
     "Replacement Components",
 ]
 
+SUMMARY_KEYS = [
+    "ABILITY",
+    "TECH",
+    "BREAKTHROUGH",
+    "AGENT",
+    "COMMANDER",
+    "HERO",
+    "MECH",
+    "FLAGSHIP",
+    "COMMODITIES",
+    "PN",
+    "TILES",
+    "STARTINGTECH",
+    "STARTINGFLEET",
+    "DRAFTORDER",
+]
+
 from pathlib import Path
 
 ICON_ROOT = Path("imgs/Icons")
@@ -152,6 +170,45 @@ for file in IMG_ROOT.rglob("*"):
     if file.is_file() and file.suffix.lower() == ".png":
         key = str(file.relative_to(IMG_ROOT)).replace("\\", "/").lower()
         IMAGE_INDEX[key] = str(file)
+
+FOLDER_TO_TYPE = {
+    "ability": "ABILITY",
+    "tech": "TECH",
+    "breakthrough": "BREAKTHROUGH",
+    "agent": "AGENT",
+    "commander": "COMMANDER",
+    "hero": "HERO",
+    "mech": "MECH",
+    "flagship": "FLAGSHIP",
+    "pn": "PN",
+}
+
+NAME_TO_TYPE = {}
+
+for rel_path in IMAGE_INDEX:
+    parts = rel_path.split("/")
+
+    if len(parts) < 2:
+        continue
+
+    folder = parts[0].lower()
+    filename = Path(parts[-1]).stem.lower()
+
+    draft_type = FOLDER_TO_TYPE.get(folder)
+
+    if draft_type:
+        NAME_TO_TYPE[filename] = draft_type
+
+
+def infer_type_from_image(name: str):
+    key = (
+        name.replace('"', "")
+            .replace("?", "")
+            .strip()
+            .lower()
+    )
+
+    return NAME_TO_TYPE.get(key)
 
 st.sidebar.write("Images:", len(IMAGE_INDEX))
 st.sidebar.write("Icons:", len(ICON_INDEX))
@@ -215,8 +272,29 @@ def replace_icons(text):
 
     return icon_pattern.sub(repl, text)
 
+def stat_bar(percent, color):
+    st.markdown(
+        f"""
+        <div style="
+            width:100%;
+            height:16px;
+            background:#e0e0e0;
+            border-radius:8px;
+            overflow:hidden;
+        ">
+            <div style="
+                width:{percent * 100:.1f}%;
+                height:100%;
+                background:{color};
+                border-radius:8px;
+            "></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-def render_pick(key, value):
+def render_pick(key, value, show_extras=True, show_key=True):
+
     SWAP_KEYS = {
         "STARTINGFLEET",
     }
@@ -224,24 +302,78 @@ def render_pick(key, value):
     card_image = image_path(key, value)
 
     lines = value.splitlines()
-
     name = lines[0] if lines else "Unknown"
 
+    description_lines = [
+        line for line in lines[1:]
+        if not line.lower().startswith((
+            "also adds:",
+            "includes optional swaps:"
+        ))
+    ]
+
+    description = "\n".join(description_lines)
+
+    tooltip = html.escape(
+        re.sub(r":[^:\s]+:", "", description)
+    )
+    tooltip = re.sub(r"\s+", " ", tooltip).strip()
+
     swap = key in SWAP_KEYS
+
+    # ---------------------------------------------------
+    # Normal cards
+    # ---------------------------------------------------
     if not swap:
-        st.markdown(
-            f"<div style='text-align:center;font-weight:bold'>{key}</div>",
-            unsafe_allow_html=True,
-        )
+
+        if show_key:
+            st.markdown(
+                f"<div style='text-align:center;font-weight:bold'>{key}</div>",
+                unsafe_allow_html=True,
+            )
+
+        #
+        # If the description is only icon tokens
+        # (e.g. :carrier::destroyer::destroyer:)
+        # render those underneath the picture.
+        #
+        icon_html = ""
+
+        tokens = []
+
+        for line in description_lines:
+            tokens.extend(re.findall(r":([^:]+):", line))
+
+        if tokens:
+
+            pieces = []
+
+            for token in tokens:
+
+                icon = icon_path(token)
+
+                if icon:
+                    encoded = image_to_base64(icon)
+
+                    pieces.append(
+                        f'<img '
+                        f'src="data:image/png;base64,{encoded}" '
+                        f'alt="{token}" '
+                        f'title="{token}" '
+                        f'style="height:22px;margin:2px;">'
+                    )
+
+            if pieces:
+                icon_html = (
+                    "<div style='text-align:center;"
+                    "margin-top:6px;'>"
+                    + "".join(pieces)
+                    + "</div>"
+                )
 
         if card_image and os.path.exists(card_image):
 
-            with open(card_image, "rb") as f:
-                img_bytes = f.read()
-
-            import base64
-
-            encoded = base64.b64encode(img_bytes).decode()
+            encoded = image_to_base64(card_image)
 
             st.markdown(f"""
             <div style="
@@ -251,18 +383,29 @@ def render_pick(key, value):
                 justify-content:center;
                 margin-bottom:2px;
             ">
-                <img src="data:image/png;base64,{encoded}"
-                     style="
-                         max-height:155px;
-                         max-width:100%;
-                         object-fit:contain;
-                     ">
+                <img
+                    src="data:image/png;base64,{encoded}"
+                    alt="{tooltip}"
+                    title="{tooltip}"
+                    style="
+                        max-height:155px;
+                        max-width:100%;
+                        object-fit:contain;
+                    "
+                >
             </div>
+
+            {icon_html}
             """, unsafe_allow_html=True)
 
         else:
             st.info("No image available")
+
+    # ---------------------------------------------------
+    # Starting Fleet
+    # ---------------------------------------------------
     else:
+
         st.markdown(
             f"<div style='text-align:center;font-weight:bold'>{key}</div>",
             unsafe_allow_html=True,
@@ -271,6 +414,7 @@ def render_pick(key, value):
         display_lines = []
 
         for line in lines[1:]:
+
             lower = line.lower().strip()
 
             if lower.startswith("also adds:"):
@@ -281,25 +425,32 @@ def render_pick(key, value):
 
             display_lines.append(line)
 
-        html = convert_unit_lines(display_lines)
+        icons = convert_unit_lines(display_lines)
 
-        # Replace icons
-        parts = icon_pattern.split(html)
         rendered = ""
 
-        for i, part in enumerate(parts):
-            if i % 2 == 0:
-                rendered += part
+        for icon_name, tooltip in icons:
+
+            if icon_name is None:
+                rendered += tooltip
+                continue
+
+            icon_image = icon_path(icon_name)
+
+            if icon_image:
+
+                encoded = image_to_base64(icon_image)
+
+                rendered += (
+                    f'<img '
+                    f'src="data:image/png;base64,{encoded}" '
+                    f'alt="{tooltip}" '
+                    f'title="{tooltip}" '
+                    f'style="height:25px;display:block;">'
+                )
+
             else:
-                icon_image = icon_path(part)
-                if icon_image:
-                    encoded = image_to_base64(icon_image)
-                    rendered += (
-                        f'<img src="data:image/png;base64,{encoded}" '
-                        'style="height:25px;display:block;">'
-                    )
-                else:
-                    rendered += f":{part}:"
+                rendered += tooltip
 
         st.markdown(f"""
         <div style="
@@ -313,7 +464,6 @@ def render_pick(key, value):
                 display:flex;
                 justify-content:center;
                 align-items:center;
-                alight-content:center;
                 gap:2px;
                 flex-wrap:wrap;
             ">
@@ -322,80 +472,95 @@ def render_pick(key, value):
         </div>
         """, unsafe_allow_html=True)
 
-        st.markdown("</div>", unsafe_allow_html=True)
+    # ---------------------------------------------------
     # Card name
+    # ---------------------------------------------------
+
     st.markdown(
-        f"<div style='text-align:center; font-weight:bold; "
-        f"padding-top:4px;'>{name}</div>",
-        unsafe_allow_html=True
+        f"<div style='text-align:center;font-weight:bold;padding-top:4px;'>"
+        f"{name}"
+        f"</div>",
+        unsafe_allow_html=True,
     )
-    extras = extract_extra_components(lines)
-
-    from collections import defaultdict
-
-    grouped_extras = defaultdict(list)
-
-    for extra_key, extra_name in extras:
-        grouped_extras[extra_key].append(extra_name)
-
-    for extra_key, extra_names in grouped_extras.items():
+    if key == "STARTINGFLEET":
+        value = starting_fleet_value(display_lines)
 
         st.markdown(
-            "<hr style='margin:6px 0 10px 0;'>",
+            f"""
+            <div style="
+                text-align:center;
+                color:#666;
+                font-size:0.9rem;
+                margin-top:2px;
+            ">
+                Resource Value: <b>{value:g}</b>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
+    # ---------------------------------------------------
+    # Extras (unchanged)
+    # ---------------------------------------------------
 
-        st.markdown(
-            f"<div style='text-align:center;font-weight:bold'>{extra_key}</div>",
-            unsafe_allow_html=True,
-        )
+    if show_extras:
 
-        for extra_name in extra_names:
+        extras = extract_extra_components(lines)
 
-            parts = icon_pattern.split(extra_name)
-            html = ""
+        from collections import defaultdict
 
-            for i, part in enumerate(parts):
-                if i % 2 == 0:
-                    html += part
-                else:
-                    icon = icon_path(part)
-                    if icon:
-                        encoded = image_to_base64(icon)
-                        html += (
-                            f'<img src="data:image/png;base64,{encoded}" '
-                            'style="height:20px;vertical-align:middle;margin:0 2px;">'
-                        )
-                    else:
-                        html += f":{part}:"
+        grouped_extras = defaultdict(list)
+
+        for extra_key, extra_name, draft_type in extras:
+            grouped_extras[extra_key].append(extra_name)
+
+        for extra_key, extra_names in grouped_extras.items():
 
             st.markdown(
-                f"<div style='text-align:center;font-weight:bold'>{html}</div>",
+                "<hr style='margin:6px 0 10px 0;'>",
                 unsafe_allow_html=True,
             )
 
-    # Details popover
-    with st.popover("Details"):
+            st.markdown(
+                f"<div style='text-align:center;font-weight:bold'>{extra_key}</div>",
+                unsafe_allow_html=True,
+            )
 
-        st.markdown(f"### {name}")
+            for extra_name in extra_names:
 
-        if swap:
-            if card_image and os.path.exists(card_image):
-                st.image(card_image, use_container_width=True)
-            else:
-                st.info("No image available")
-        else:
-            for line in lines[1:]:
+                tokens = re.findall(r":([^:]+):", extra_name)
+                tooltip = html.escape(", ".join(tokens))
 
-                lower = line.lower().strip()
+                parts = icon_pattern.split(extra_name)
+                rendered_html = ""
 
-                if lower.startswith("also adds:"):
-                    continue
+                for i, part in enumerate(parts):
 
-                if lower.startswith("includes optional swaps:"):
-                    continue
+                    if i % 2 == 0:
+                        rendered_html += part
 
-                render_detail_line(line, key)
+                    else:
+
+                        icon = icon_path(part)
+
+                        if icon:
+
+                            encoded = image_to_base64(icon)
+
+                            rendered_html += (
+                                f'<img '
+                                f'src="data:image/png;base64,{encoded}" '
+                                f'alt="{tooltip}" '
+                                f'title="{tooltip}" '
+                                'style="height:20px;vertical-align:middle;margin:0 2px;">'
+                            )
+
+                        else:
+                            rendered_html += f":{part}:"
+
+                st.markdown(
+                    f"<div style='text-align:center;font-weight:bold'>{rendered_html}</div>",
+                    unsafe_allow_html=True,
+                )
 
 def render_description(text):
 
@@ -419,6 +584,126 @@ def render_description(text):
 
             else:
                 st.write(f":{part}:")
+
+def previous_summary():
+
+    total = len(SUMMARY_KEYS)
+
+    st.session_state.summary_index = (
+        st.session_state.summary_index - 1
+    ) % total
+
+    st.session_state.summary_selector = (
+        st.session_state.summary_index
+    )
+
+
+def next_summary():
+
+    total = len(SUMMARY_KEYS)
+
+    st.session_state.summary_index = (
+        st.session_state.summary_index + 1
+    ) % total
+
+    st.session_state.summary_selector = (
+        st.session_state.summary_index
+    )
+
+
+def select_summary():
+
+    st.session_state.summary_index = (
+        st.session_state.summary_selector
+    )
+
+def find_summary_picks(player, key):
+
+    results = []
+    seen = set()
+
+    if key == "TILES":
+        matching_keys = [
+            "HOMESYSTEM",
+            "BLUETILE",
+            "REDTILE",
+        ]
+    else:
+        matching_keys = [key]
+
+    for rnd, draft_round in enumerate(player, start=1):
+
+        #
+        # Normal draft picks
+        #
+        for draft_key in matching_keys:
+
+            if draft_key not in draft_round:
+                continue
+
+            results.append(
+                (
+                    rnd,
+                    draft_key,
+                    draft_round[draft_key],
+                    None,
+                )
+            )
+
+        #
+        # Replacement / Additional Components
+        #
+        for _, value in draft_round.items():
+
+            lines = value.splitlines()
+
+            extras = extract_extra_components(lines)
+
+            for extra_key, extra_name, draft_type in extras:
+
+                if draft_type != key:
+                    continue
+
+                tokens = re.findall(r":([^:]+):", extra_name)
+
+                if len(tokens) >= 2:
+                    component_name = tokens[1]
+                else:
+                    component_name = re.sub(r":[^:]+:", "", extra_name).strip()
+
+                value = component_name + "\n"
+
+                identifier = (draft_type, component_name)
+
+                if identifier not in seen:
+                    seen.add(identifier)
+                    results.append(
+                        (
+                            rnd,
+                            draft_type,
+                            value,
+                            extra_key,
+                        )
+                    )
+
+    return results
+
+planet_values = re.compile(r"\((\d+)\s*/\s*(\d+)(?:/[^)]*)?\)")
+
+def slice_totals(home_tiles):
+    resources = 0
+    influence = 0
+
+    for _, _, value, _ in home_tiles:
+        lines = value.splitlines()
+
+        for line in lines[1:]:
+            for match in planet_values.finditer(line):
+                resources += int(match.group(1))
+                influence += int(match.group(2))
+
+    return resources, influence
+
 
 def render_player(player_name, player_data):
 
@@ -575,8 +860,12 @@ def viewer_page():
 
     st.sidebar.title("Draft")
 
-    if st.sidebar.button("🏠 Home"):
+    if st.sidebar.button("Home"):
         st.session_state.page = "home"
+        st.rerun()
+
+    if st.button("Draft Summary"):
+        st.session_state.page = "summary"
         st.rerun()
 
     st.sidebar.divider()
@@ -686,150 +975,249 @@ def viewer_page():
 
         build_tally(round_num)
 
-def build_tally(round_num):
-
-    st.header("Draft Tally")
+def build_tally(round_num, show_title=True, players_per_row=None):
+    if show_title:
+        st.header("Draft Tally")
 
     player_names = st.session_state.player_names
     master_lists = st.session_state.master_lists
 
-    for player_name, player in zip(player_names, master_lists):
+    visible_players = [
+        (name, player)
+        for i, (name, player) in enumerate(zip(player_names, master_lists))
+        if not st.session_state.player_hidden[i]
+    ]
 
-        with st.expander(player_name, expanded=True):
+    if players_per_row is None:
+        rows = [[player] for player in visible_players]
+    else:
+        rows = [
+            visible_players[i:i + players_per_row]
+            for i in range(0, len(visible_players), players_per_row)
+        ]
 
-            grouped = {}
+    for row in rows:
 
-            # -----------------------------
-            # Build grouped data
-            # -----------------------------
-            for r in range(round_num + 1):
+        cols = st.columns(len(row), gap="large")
 
-                if r >= len(player):
-                    continue
+        for col, (player_name, player) in zip(cols, row):
 
-                for key, value in player[r].items():
+            with col:
 
-                    lines = value.splitlines()
-                    first = lines[0]
+                with st.expander(player_name, expanded=True):
 
-                    grouped.setdefault(key, []).append((r + 1, first))
+                    grouped = {}
 
-                    for extra_key, extra_name in extract_extra_components(lines):
+                    # -----------------------------
+                    # Build grouped data
+                    # -----------------------------
+                    for r in range(round_num + 1):
 
-                        extra_name = re.sub(r":[^:\s]+:", "", extra_name)
-                        extra_name = re.sub(r"\s+", " ", extra_name).strip()
+                        if r >= len(player):
+                            continue
 
-                        grouped.setdefault(extra_key, []).append((r + 1, extra_name))
+                        for key, value in player[r].items():
 
-            all_keys = set()
+                            lines = value.splitlines()
+                            first = lines[0]
 
-            for rnd in player:
-                all_keys.update(rnd.keys())
+                            grouped.setdefault(key, []).append((r + 1, first))
 
-            for key in ("Replacement Component", "Additional Component"):
-                if key in grouped:
-                    all_keys.add(key)
+                            for extra_key, extra_name, draft_type in extract_extra_components(lines):
 
-            ordered = sorted(
-                all_keys,
-                key=lambda x: (
-                    TALLY_KEY_ORDER.index(x)
-                    if x in TALLY_KEY_ORDER
-                    else len(TALLY_KEY_ORDER)
-                )
-            )
+                                display_name = re.sub(r":[^:]+:", "", extra_name).strip()
 
-            # -----------------------------
-            # Build sections
-            # -----------------------------
-            sections = []
+                                if draft_type:
+                                    display_name = f"{display_name} - {draft_type}"
 
-            for key in ordered:
+                                grouped.setdefault(extra_key, []).append(
+                                    (r + 1, display_name)
+                                )
 
-                total = sum(key in rnd for rnd in player)
-                current = len(grouped.get(key, []))
+                    all_keys = set()
 
-                if key in ("Replacement Component", "Additional Component"):
-                    heading = key
-                else:
-                    heading = f"{key} ({current}/{total})"
+                    for rnd in player:
+                        all_keys.update(rnd.keys())
 
-                entries = []
+                    for key in ("Replacement Component", "Additional Component"):
+                        if key in grouped:
+                            all_keys.add(key)
 
-                for r, text in grouped.get(key, []):
-                    entries.append((r, text, r == round_num + 1))
-
-                sections.append({
-                    "heading": heading,
-                    "entries": entries,
-                    "height": 1 + len(entries)
-                })
-
-            # -----------------------------
-            # Balance columns
-            # -----------------------------
-            total_height = sum(section["height"] for section in sections)
-
-            running_height = 0
-            split_index = len(sections)
-
-            for i, section in enumerate(sections):
-                running_height += section["height"]
-
-                if running_height >= total_height / 2:
-                    split_index = i + 1
-                    break
-
-            left_sections = sections[:split_index]
-            right_sections = sections[split_index:]
-
-            # -----------------------------
-            # Render helper
-            # -----------------------------
-            def render_sections(section_list):
-
-                for section in section_list:
-
-                    st.markdown(
-                        f"""
-                                 <div style="
-                                     font-size:0.85rem;
-                                     font-weight:600;
-                                     margin-top:8px;
-                                     margin-bottom:3px;
-                                 ">
-                                     {section['heading']}
-                                 </div>
-                                 """,
-                        unsafe_allow_html=True,
+                    ordered = sorted(
+                        all_keys,
+                        key=lambda x: (
+                            TALLY_KEY_ORDER.index(x)
+                            if x in TALLY_KEY_ORDER
+                            else len(TALLY_KEY_ORDER)
+                        )
                     )
 
-                    for r, text, current in section["entries"]:
-                        bg = "#00ad2a" if current else "transparent"
+                    sections = []
 
+                    for key in ordered:
+
+                        total = sum(key in rnd for rnd in player)
+                        current = len(grouped.get(key, []))
+
+                        if key in ("Replacement Component", "Additional Component"):
+                            heading = key
+                        else:
+                            heading = f"{key} ({current}/{total})"
+
+                        entries = [
+                            (r, text, r == round_num + 1)
+                            for r, text in grouped.get(key, [])
+                        ]
+
+                        sections.append({
+                            "heading": heading,
+                            "entries": entries,
+                            "height": 1 + len(entries),
+                        })
+
+                    total_height = sum(s["height"] for s in sections)
+
+                    running = 0
+                    split = len(sections)
+
+                    for i, section in enumerate(sections):
+                        running += section["height"]
+                        if running >= total_height / 2:
+                            split = i + 1
+                            break
+
+                    left_sections = sections[:split]
+                    right_sections = sections[split:]
+
+                    def render_sections(section_list):
+
+                        for section in section_list:
+
+                            st.markdown(
+                                f"""
+                                <div style="
+                                    font-size:0.85rem;
+                                    font-weight:600;
+                                    margin-top:8px;
+                                    margin-bottom:3px;
+                                ">
+                                    {section['heading']}
+                                </div>
+                                """,
+                                unsafe_allow_html=True,
+                            )
+
+                            for r, text, current in section["entries"]:
+
+                                bg = "#00ad2a" if current else "transparent"
+
+                                st.markdown(
+                                    f"""
+                                    <div style="
+                                        background:{bg};
+                                        padding:1px 6px;
+                                        margin:1px 0;
+                                        border-radius:3px;
+                                        line-height:1.05;
+                                        font-size:0.75rem;
+                                    ">
+                                        <b>R{r}</b> • {text}
+                                    </div>
+                                    """,
+                                    unsafe_allow_html=True,
+                                )
+
+                    left_col, right_col = st.columns(2, gap="small")
+
+                    with left_col:
+                        render_sections(left_sections)
+
+                    with right_col:
+                        render_sections(right_sections)
+
+def build_summary():
+
+    player_names = st.session_state.player_names
+    master_lists = st.session_state.master_lists
+
+    grouped = {}
+
+    # --------------------------------------------
+    # Gather every pick by key, then by player
+    # --------------------------------------------
+    for i, (player_name, player) in enumerate(zip(player_names, master_lists)):
+
+        if st.session_state.player_hidden[i]:
+            continue
+
+        for rnd, draft_round in enumerate(player, start=1):
+
+            for key, value in draft_round.items():
+
+                lines = value.splitlines()
+                name = lines[0] if lines else ""
+
+                grouped.setdefault(key, {})
+                grouped[key].setdefault(player_name, [])
+                grouped[key][player_name].append(
+                    (rnd, name)
+                )
+
+                # Include replacement/additional components
+                for extra_key, extra_name, draft_type in extract_extra_components(lines):
+
+                    extra_name = re.sub(r":[^:\s]+:", "", extra_name)
+                    extra_name = re.sub(r"\s+", " ", extra_name).strip()
+
+                    grouped.setdefault(extra_key, {})
+                    grouped[extra_key].setdefault(player_name, [])
+                    grouped[extra_key][player_name].append(
+                        (rnd, extra_name)
+                    )
+
+    # --------------------------------------------
+    # Order keys
+    # --------------------------------------------
+    ordered_keys = sorted(
+        grouped.keys(),
+        key=lambda x: (
+            TALLY_KEY_ORDER.index(x)
+            if x in TALLY_KEY_ORDER
+            else len(TALLY_KEY_ORDER)
+        )
+    )
+
+    # --------------------------------------------
+    # Display
+    # --------------------------------------------
+    visible_players = [
+        name
+        for i, name in enumerate(st.session_state.player_names)
+        if not st.session_state.player_hidden[i]
+    ]
+
+    for key in ordered_keys:
+
+        total = sum(
+            len(entries)
+            for entries in grouped[key].values()
+        )
+
+        with st.expander(f"{key} ({total})", expanded=True):
+
+            cols = st.columns(len(visible_players))
+
+            for col, player_name in zip(cols, visible_players):
+
+                with col:
+
+                    st.markdown(f"#### {player_name}")
+
+                    for rnd, item in grouped[key].get(player_name, []):
                         st.markdown(
-                            f"""
-                                     <div style="
-                                         background:{bg};
-                                         padding:1px 6px;
-                                         margin:1px 0;
-                                         border-radius:3px;
-                                         line-height:1.05;
-                                         font-size:0.75rem;
-                                     ">
-                                         <b>R{r}</b> • {text}
-                                     </div>
-                                     """,
-                            unsafe_allow_html=True,
+                            f"**R{rnd}** • {item}"
                         )
 
-            left_col, right_col = st.columns(2, gap="small")
-
-            with left_col:
-                render_sections(left_sections)
-
-            with right_col:
-                render_sections(right_sections)
 
 def render_detail_line(line, key):
     MULTILINE_KEYS = {
@@ -840,14 +1228,14 @@ def render_detail_line(line, key):
     if key in MULTILINE_KEYS:
         line = line.replace(", ", "<br>")
 
-    html = ""
+    rendered_html = ""
 
     parts = icon_pattern.split(line)
 
     for i, part in enumerate(parts):
 
         if i % 2 == 0:
-            html += part
+            rendered_html += part
 
         else:
 
@@ -857,7 +1245,7 @@ def render_detail_line(line, key):
 
                 encoded = image_to_base64(icon_image)
 
-                html += (
+                rendered_html += (
                     f'<img src="data:image/png;base64,{encoded}" '
                     'style="height:20px;'
                     'vertical-align:middle;'
@@ -865,95 +1253,426 @@ def render_detail_line(line, key):
                 )
 
             else:
-                html += f":{part}:"
+                rendered_html += f":{part}:"
 
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(rendered_html, unsafe_allow_html=True)
 
 import base64
 
 def extract_extra_components(lines):
     extras = []
 
+    TYPE_MAP = {
+        "agent": "AGENT",
+        "commander": "COMMANDER",
+        "hero": "HERO",
+        "mech": "MECH",
+        "flagship": "FLAGSHIP",
+        "tech": "TECH",
+        "pn": "PN",
+        "ability": "ABILITY",
+        "breakthrough": "BREAKTHROUGH",
+    }
+
     for line in lines:
         lower = line.lower().strip()
 
         if lower.startswith("also adds:"):
+            category = "Additional Component"
             swaps = line.split(":", 1)[1].strip()
-
-            for swap in swaps.split(","):
-                swap = swap.strip()
-
-                if not swap:
-                    continue
-
-                swap = re.sub(
-                    r"^(Additional Component|Replacement Component):\s*",
-                    "",
-                    swap,
-                    flags=re.IGNORECASE,
-                )
-
-                extras.append(("Replacement Component", swap))
-
 
         elif lower.startswith("includes optional swaps:"):
-
+            category = "Replacement Component"
             swaps = line.split(":", 1)[1].strip()
 
-            for swap in swaps.split(","):
-                swap = swap.strip()
+        else:
+            continue
 
-                if not swap:
-                    continue
+        for swap in swaps.split(","):
+            swap = swap.strip()
+            if not swap:
+                continue
 
-                swap = re.sub(
-                    r"^(Additional Component|Replacement Component):\s*",
-                    "",
-                    swap,
-                    flags=re.IGNORECASE,
-                )
+            tokens = re.findall(r":([^:]+):", swap)
 
-                extras.append(("Replacement Component", swap))
+            draft_type = None
+
+            for token in tokens:
+                token_lower = token.lower()
+
+                for key, value in TYPE_MAP.items():
+                    if token_lower.endswith(key):
+                        draft_type = value
+                        break
+
+                if draft_type:
+                    break
+
+            if draft_type is None:
+                plain_name = re.sub(r":[^:]+:", "", swap).strip()
+                draft_type = infer_type_from_image(plain_name)
+
+            if draft_type is None:
+                draft_type = "ABILITY"
+
+            extras.append((category, swap, draft_type))
 
     return extras
 
 
 def convert_unit_lines(lines):
+    """
+        Returns [(icon_name, tooltip), ...]
+        Handles:
+            1 fighter, 2 destroyers
+            multiple lines
+            :fighter::destroyer::destroyer:
+        """
+
     UNIT_MAP = {
         "fighter": "fighter",
         "fighters": "fighter",
+        "destroyer": "destroyer",
+        "destroyers": "destroyer",
+        "carrier": "carrier",
+        "carriers": "carrier",
+        "cruiser": "cruiser",
+        "cruisers": "cruiser",
+        "dreadnought": "dreadnought",
+        "dreadnoughts": "dreadnought",
         "infantry": "infantry",
         "space dock": "spacedock",
-        "warsun": "warsun",
+        "spacedock": "spacedock",
         "war sun": "warsun",
+        "warsun": "warsun",
         "flagship": "flagship",
     }
 
+    tooltip = html.escape(", ".join(
+        l.strip() for l in lines if l.strip()
+    ))
+
     icons = []
 
+    #
+    # Flatten into comma-separated pieces.
+    #
+    parts = []
+
     for line in lines:
-        line = line.strip()
-        if not line:
+        parts.extend(x.strip() for x in line.split(",") if x.strip())
+
+    for part in parts:
+
+        #
+        # Case 3
+        #
+        if ":" in part:
+            for token in re.findall(r":([^:]+):", part):
+                icons.append((token.lower(), tooltip))
             continue
 
-        m = re.match(r"(\d+)\s+(.+)", line, re.IGNORECASE)
+        #
+        # Case 1 / Case 2
+        #
+        m = re.match(r"(\d+)\s+(.+)", part, re.I)
 
         if not m:
-            icons.append(line)
             continue
 
         count = int(m.group(1))
         unit = re.sub(r"\(.*?\)", "", m.group(2)).strip().lower()
 
         for key, icon in UNIT_MAP.items():
-            if key in unit:
-                icons.extend([f":{icon}:" for _ in range(count)])
+            if key == unit:
+                icons.extend([(icon, tooltip)] * count)
                 break
-        else:
-            icons.append(line)
 
-    return " ".join(icons)
+    return icons
 
+UNIT_VALUES = {
+    "warsun": 12,
+    "cruiser": 2,
+    "carrier": 3,
+    "dreadnought": 4,
+    "destroyer": 1,
+    "fighter": 0.5,
+    "infantry": 0.5,
+    "pds": 3,
+    "spacedock": 3,
+    "mech": 2,
+}
+
+def starting_fleet_value(lines):
+    """
+    Returns the total resource value of a starting fleet.
+    Works with both:
+        2 infantry, 1 carrier
+    and
+        :infantry::infantry::carrier:
+    """
+
+    total = 0
+
+    for icon_name, _ in convert_unit_lines(lines):
+        total += UNIT_VALUES.get(icon_name.lower(), 0)
+
+    return total
+
+def summary_page():
+
+    if not st.session_state.master_lists:
+        st.warning("No draft loaded.")
+        return
+
+    if "summary_selector" not in st.session_state:
+        st.session_state.summary_selector = (
+            st.session_state.summary_index
+        )
+
+    # --------------------
+    # Sidebar
+    # --------------------
+
+    st.sidebar.title("Draft")
+
+    if st.sidebar.button("Home"):
+        st.session_state.page = "home"
+        st.rerun()
+
+    st.title("Draft Summary")
+
+    if st.button("⬅ Return to Draft"):
+        st.session_state.page = "viewer"
+        st.rerun()
+
+    #
+    # Player visibility
+    #
+
+    st.sidebar.divider()
+    st.sidebar.subheader("Players")
+
+    for i, name in enumerate(st.session_state.player_names):
+
+        visible = st.sidebar.checkbox(
+            name,
+            value=not st.session_state.player_hidden[i],
+            key=f"summary_visible_{i}"
+        )
+
+        st.session_state.player_hidden[i] = not visible
+
+    #
+    # Navigation
+    #
+
+    left, middle, right = st.columns([1,2,1])
+
+    with left:
+
+        st.button(
+            "⬅ Previous",
+            on_click=previous_summary
+        )
+
+    with middle:
+
+        st.selectbox(
+            "",
+            options=list(range(len(SUMMARY_KEYS))),
+            key="summary_selector",
+            format_func=lambda x: SUMMARY_KEYS[x],
+            label_visibility="collapsed",
+            on_change=select_summary,
+        )
+
+    with right:
+
+        st.button(
+            "Next ➡",
+            on_click=next_summary
+        )
+
+    st.divider()
+
+    current_key = SUMMARY_KEYS[
+        st.session_state.summary_index
+    ]
+
+    #
+    # Player cards
+    #
+
+    players = []
+
+    for i, player in enumerate(st.session_state.master_lists):
+
+        if st.session_state.player_hidden[i]:
+            continue
+
+        players.append(
+            (
+                st.session_state.player_names[i],
+                player
+            )
+        )
+    # -------------------------------------------------
+    # Resource totals for proportional bars
+    # -------------------------------------------------
+
+    resource_totals = {}
+    influence_totals = {}
+
+    if current_key == "TILES":
+
+        for player_name, player in players:
+            results = find_summary_picks(player, "TILES")
+
+            other_tiles = [
+                r for r in results
+                if r[1] != "HOMESYSTEM"
+            ]
+
+            resources, influence = slice_totals(other_tiles)
+
+            resource_totals[player_name] = resources
+            influence_totals[player_name] = influence
+
+            max_resources = max(resource_totals.values(), default=1)
+            max_influence = max(influence_totals.values(), default=1)
+
+
+    rows = [
+        players[i:i+2]
+        for i in range(0, len(players), 2)
+    ]
+
+    for row in rows:
+
+        cols = st.columns(2)
+
+        for col, (player_name, player) in zip(cols, row):
+
+            with col:
+
+                with st.container(border=True):
+
+                    st.markdown(f"### {player_name}")
+
+                    results = find_summary_picks(player, current_key)
+
+                    if not results:
+                        st.info("No Pick")
+                        continue
+
+                    if current_key == "TILES":
+                        home_tiles = [r for r in results if r[1] == "HOMESYSTEM"]
+                        other_tiles = [r for r in results if r[1] != "HOMESYSTEM"]
+                        groups = [home_tiles, other_tiles]
+                    else:
+                        groups = [results]
+
+                    for group_index, group in enumerate(groups):
+
+                        if not group:
+                            continue
+
+                        # Divider before non-home-system tiles
+                        if group_index:
+                            st.markdown(
+                                "<hr style='margin:10px 0;'>",
+                                unsafe_allow_html=True,
+                            )
+
+
+                        for start in range(0, len(group), 3):
+
+                            chunk = group[start:start + 3]
+
+                            if len(chunk) == 3:
+                                render_cols = st.columns(3)
+                            elif len(chunk) == 2:
+                                c1, c2, c3, c4 = st.columns([1, 2, 2, 1])
+                                render_cols = [c2, c3]
+                            else:
+                                c1, c2, c3 = st.columns([1, 2, 1])
+                                render_cols = [c2]
+
+                            for render_col, (rnd, key, value, component_type) in zip(render_cols, chunk):
+                                with render_col:
+
+                                    render_pick(
+                                        key,
+                                        value,
+                                        show_extras=True,
+                                        show_key=False,
+                                    )
+
+                                    if component_type:
+                                        st.markdown(
+                                            f"""
+                                                <div style="
+                                                    text-align:center;
+                                                    color:#777;
+                                                    font-size:0.8rem;
+                                                    margin-top:2px;
+                                                ">
+                                                    {component_type}
+                                                </div>
+                                                                """,
+                                            unsafe_allow_html=True,
+                                        )
+
+                                    st.markdown(
+                                        f"""
+                                            <div style="
+                                                text-align:center;
+                                                color:gray;
+                                                margin-top:4px;
+                                            ">
+                                                Round {rnd}
+                                            </div>
+                                            """,
+                                        unsafe_allow_html=True,
+                                    )
+                    #
+                    # Resource / Influence bars
+                    #
+                    if current_key == "TILES":
+                        resources = resource_totals[player_name]
+                        influence = influence_totals[player_name]
+
+                        resource_percent = (
+                            resources / max_resources
+                            if max_resources else 0
+                        )
+
+                        influence_percent = (
+                            influence / max_influence
+                            if max_influence else 0
+                        )
+
+                        left, right = st.columns(2)
+
+                        with left:
+                            st.markdown(
+                                f"<div style='text-align:center;font-size:0.9rem;'>"
+                                f"Resources <b>{resources}</b></div>",
+                                unsafe_allow_html=True,
+                            )
+                            stat_bar(resource_percent, "#d4af37")  # gold
+
+                        with right:
+                            st.markdown(
+                                f"<div style='text-align:center;font-size:0.9rem;'>"
+                                f"Influence <b>{influence}</b></div>",
+                                unsafe_allow_html=True,
+                            )
+                            stat_bar(influence_percent, "#4a90e2")  # blue
+
+                        st.markdown("<div style='height:8px'></div>",
+                                    unsafe_allow_html=True)
 
 def image_to_base64(path):
 
@@ -964,10 +1683,16 @@ def icon_path(token: str):
     return ICON_INDEX.get(token.strip().lower())
 
 if st.session_state.page == "home":
-
     home_page()
 
-else:
-
+elif st.session_state.page == "viewer":
     viewer_page()
+
+elif st.session_state.page == "summary":
+    summary_page()
+
+else:
+    # Fallback
+    st.session_state.page = "home"
+    st.rerun()
 
