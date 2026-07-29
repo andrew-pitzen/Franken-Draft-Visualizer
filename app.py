@@ -133,6 +133,7 @@ TALLY_KEY_ORDER = [
 ]
 
 SUMMARY_KEYS = [
+    "TILES",
     "ABILITY",
     "TECH",
     "BREAKTHROUGH",
@@ -143,7 +144,6 @@ SUMMARY_KEYS = [
     "FLAGSHIP",
     "COMMODITIES",
     "PN",
-    "TILES",
     "STARTINGTECH",
     "STARTINGFLEET",
     "DRAFTORDER",
