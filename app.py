@@ -42,7 +42,7 @@ if "draft" in params and not st.session_state.draft_loaded:
     st.session_state.player_hidden = [False] * len(data["player_names"])
 
     st.session_state.round_num = 0
-    st.session_state.page = "viewer"
+    st.session_state.page = "summary"
     st.session_state.draft_loaded = True
 
 CARD_HEIGHT = 155
@@ -295,8 +295,8 @@ def stat_bar(percent, color):
         unsafe_allow_html=True,
     )
 
-def render_pick(key, value, show_extras=True, show_key=True):
 
+def render_pick(key, value, show_extras=True, show_key=True):
     SWAP_KEYS = {
         "STARTINGFLEET",
     }
@@ -324,153 +324,13 @@ def render_pick(key, value, show_extras=True, show_key=True):
     swap = key in SWAP_KEYS
 
     # ---------------------------------------------------
-    # Normal cards
+    # Pre-build Extras HTML for Dropdown
     # ---------------------------------------------------
-    if not swap:
+    extras = extract_extra_components(lines)
+    extras_html = ""
 
-        if show_key:
-            st.markdown(
-                f"<div style='text-align:center;font-weight:bold'>{key}</div>",
-                unsafe_allow_html=True,
-            )
-
-        if card_image and os.path.exists(card_image):
-
-            encoded = image_to_base64(card_image)
-
-            st.markdown(f"""
-            <div style="
-                height:{CARD_HEIGHT}px;
-                display:flex;
-                align-items:center;
-                justify-content:center;
-                margin-bottom:2px;
-            ">
-                <img
-                    src="data:image/png;base64,{encoded}"
-                    alt="{tooltip}"
-                    title="{tooltip}"
-                    style="
-                        max-height:155px;
-                        max-width:100%;
-                        object-fit:contain;
-                    "
-                >
-            </div>
-            """, unsafe_allow_html=True)
-
-        else:
-            st.info("No image available")
-
-    # ---------------------------------------------------
-    # Starting Fleet
-    # ---------------------------------------------------
-    else:
-
-        st.markdown(
-            f"<div style='text-align:center;font-weight:bold'>{key}</div>",
-            unsafe_allow_html=True,
-        )
-
-        display_lines = []
-
-        for line in lines[1:]:
-
-            lower = line.lower().strip()
-
-            if lower.startswith("also adds:"):
-                continue
-
-            if lower.startswith("includes optional swaps:"):
-                continue
-
-            display_lines.append(line)
-
-        icons = convert_unit_lines(display_lines)
-
-        rendered = ""
-
-        for icon_name, tooltip in icons:
-
-            if icon_name is None:
-                rendered += tooltip
-                continue
-
-            icon_image = icon_path(icon_name)
-
-            if icon_image:
-
-                encoded = image_to_base64(icon_image)
-
-                rendered += (
-                    f'<img '
-                    f'src="data:image/png;base64,{encoded}" '
-                    f'alt="{tooltip}" '
-                    f'title="{tooltip}" '
-                    f'style="height:25px;display:block;">'
-                )
-
-            else:
-                rendered += tooltip
-
-        st.markdown(f"""
-        <div style="
-            height:{CARD_HEIGHT-20}px;
-            display:flex;
-            align-items:center;
-            justify-content:center;
-            margin-bottom:2px;
-        ">
-            <div style="
-                display:flex;
-                justify-content:center;
-                align-items:center;
-                gap:2px;
-                flex-wrap:wrap;
-            ">
-                {rendered}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # ---------------------------------------------------
-    # Card name
-    # ---------------------------------------------------
-
-    st.markdown(
-        f"<div style='text-align:center;font-weight:bold;padding-top:4px;'>"
-        f"{name}"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-
-    if key == "STARTINGFLEET":
-        value = starting_fleet_value(display_lines)
-
-        st.markdown(
-            f"""
-            <div style="
-                text-align:center;
-                color:#666;
-                font-size:0.9rem;
-                margin-top:2px;
-            ">
-                Resource Value: <b>{value:g}</b>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    # ---------------------------------------------------
-    # Extras
-    # ---------------------------------------------------
-
-    if show_extras:
-
-        extras = extract_extra_components(lines)
-
+    if show_extras and extras:
         from collections import defaultdict
-
         grouped_extras = defaultdict(list)
 
         for extra_key, extra_name, draft_type in extras:
@@ -478,65 +338,109 @@ def render_pick(key, value, show_extras=True, show_key=True):
 
         for extra_key, extra_names in grouped_extras.items():
 
-            st.markdown(
-                "<hr style='margin:6px 0 10px 0;'>",
-                unsafe_allow_html=True,
-            )
-
-            st.markdown(
-                f"<div style='text-align:center;font-weight:bold'>{extra_key}</div>",
-                unsafe_allow_html=True,
-            )
+            extras_html += f"<div style='text-align:center;font-weight:bold;font-size:0.85rem;margin-top:6px;'>{extra_key}</div>"
 
             for extra_name in extra_names:
-
                 tokens = re.findall(r":([^:]+):", extra_name)
-                tooltip = html.escape(", ".join(tokens))
-
+                ttip = html.escape(", ".join(tokens))
                 parts = icon_pattern.split(extra_name)
                 rendered_html = ""
 
                 for i, part in enumerate(parts):
-
                     if i % 2 == 0:
                         rendered_html += part
-
                     else:
-
                         icon = icon_path(part)
-
                         if icon:
-
                             encoded = image_to_base64(icon)
-
                             rendered_html += (
-                                f'<img '
-                                f'src="data:image/png;base64,{encoded}" '
-                                f'alt="{tooltip}" '
-                                f'title="{tooltip}" '
-                                'style="height:20px;vertical-align:middle;margin:0 2px;">'
+                                f'<img src="data:image/png;base64,{encoded}" '
+                                f'alt="{ttip}" title="{ttip}" '
+                                'style="height:18px;vertical-align:middle;margin:0 2px;">'
                             )
-
                         else:
                             rendered_html += f":{part}:"
 
-                st.markdown(
-                    f"<div style='text-align:center;font-weight:bold'>{rendered_html}</div>",
-                    unsafe_allow_html=True,
+                extras_html += f"<div style='text-align:center;font-size:0.85rem;'>{rendered_html}</div>"
+
+    # ---------------------------------------------------
+    # Build Main Card Components (Image & Footer)
+    # ---------------------------------------------------
+    image_html = ""
+    footer_html = f"<div style='text-align:center;font-weight:bold;padding-top:4px;'>{name}</div>"
+
+    # Normal cards
+    if not swap:
+        if card_image and os.path.exists(card_image):
+            encoded = image_to_base64(card_image)
+            # Compressed to a single line to prevent Streamlit rendering it as a Markdown code block
+            image_html = f'<div style="height:{CARD_HEIGHT}px; display:flex; align-items:center; justify-content:center; margin: 4px 0;"><img src="data:image/png;base64,{encoded}" alt="{tooltip}" title="{tooltip}" style="max-height:155px; max-width:100%; object-fit:contain;"></div>'
+        else:
+            image_html = f'<div style="height:{CARD_HEIGHT}px; display:flex; align-items:center; justify-content:center; color:gray; margin: 4px 0;">No image available</div>'
+
+    # Starting Fleet (Icons)
+    else:
+        display_lines = []
+        for line in lines[1:]:
+            lower = line.lower().strip()
+            if lower.startswith("also adds:") or lower.startswith("includes optional swaps:"):
+                continue
+            display_lines.append(line)
+
+        icons = convert_unit_lines(display_lines)
+        rendered = ""
+        for icon_name, icon_tooltip in icons:
+            if icon_name is None:
+                rendered += icon_tooltip
+                continue
+
+            icon_img = icon_path(icon_name)
+            if icon_img:
+                encoded = image_to_base64(icon_img)
+                rendered += (
+                    f'<img src="data:image/png;base64,{encoded}" '
+                    f'alt="{icon_tooltip}" title="{icon_tooltip}" '
+                    f'style="height:25px;display:block;">'
                 )
+            else:
+                rendered += icon_tooltip
+
+        image_html = f'<div style="height:{CARD_HEIGHT - 20}px; display:flex; align-items:center; justify-content:center; margin: 4px 0;"><div style="display:flex; justify-content:center; align-items:center; gap:2px; flex-wrap:wrap;">{rendered}</div></div>'
+
+        val = starting_fleet_value(display_lines)
+        footer_html += f'<div style="text-align:center; color:rgba(128,128,128,0.8); font-size:0.9rem; margin-top:2px;">Resource Value: <b>{val:g}</b></div>'
+
+    # ---------------------------------------------------
+    # Assemble Final HTML Layout
+    # ---------------------------------------------------
+
+    css_block = "<style>details.draft-card > summary { list-style: none; } details.draft-card > summary::-webkit-details-marker { display: none; } details.draft-card > summary .card-arrow::after { content: '▶'; font-size: 0.8em; margin-left: 6px; color: #888; display: inline-block; transition: transform 0.2s; } details.draft-card[open] > summary .card-arrow::after { transform: rotate(90deg); }</style>"
+
+    header_html = f"{key}" if show_key else ""
+
+    if show_extras and extras_html:
+        key_div = f'<div style="text-align:center; font-weight:bold; margin-bottom:4px;">{header_html} <span class="card-arrow"></span></div>' if show_key else ""
+
+        # Compressed to a single line
+        final_html = f'{css_block}<details class="draft-card" style="margin-bottom:8px; outline:none;"><summary style="cursor:pointer; outline:none;">{key_div}{image_html}{footer_html}</summary><div style="border:1px solid rgba(128,128,128,0.2); border-radius:4px; padding:4px 8px; margin-top:8px; background:rgba(128,128,128,0.05);">{extras_html}</div></details>'
+    else:
+        key_div = f"<div style='text-align:center; font-weight:bold; margin-bottom:4px;'>{header_html}</div>" if show_key else ""
+
+        # Compressed to a single line
+        final_html = f'<div style="margin-bottom:8px;">{key_div}{image_html}{footer_html}</div>'
+
+    st.markdown(final_html, unsafe_allow_html=True)
 def render_description(text):
 
     parts = icon_pattern.split(text)
 
     for part_index, part in enumerate(parts):
 
-        # Even indices are normal text
         if part_index % 2 == 0:
 
             if part.strip():
                 st.write(part)
 
-        # Odd indices are things inside colons
         else:
 
             image = f"imgs/Icons/{part}.png"
@@ -695,8 +599,9 @@ def clear_home_inputs():
 def fake_sidebar(active_page):
     titles = {
         "home": "Draft",
-        "viewer": "Rounds",
         "summary": "Summary",
+        "tally": "Draft Tally",
+        "rounds": "Rounds",
     }
 
     st.title(titles.get(active_page, "Draft"))
@@ -710,14 +615,6 @@ def fake_sidebar(active_page):
         st.rerun()
 
     if st.button(
-        "Rounds",
-        disabled=active_page == "viewer",
-        use_container_width=True,
-    ):
-        st.session_state.page = "viewer"
-        st.rerun()
-
-    if st.button(
         "Summary",
         disabled=active_page == "summary",
         use_container_width=True,
@@ -725,36 +622,45 @@ def fake_sidebar(active_page):
         st.session_state.page = "summary"
         st.rerun()
 
+    if st.button(
+        "Draft Tally",
+        disabled=active_page == "tally",
+        use_container_width=True,
+    ):
+        st.session_state.page = "tally"
+        st.rerun()
+
+    if st.button(
+        "Rounds",
+        disabled=active_page == "rounds",
+        use_container_width=True,
+    ):
+        st.session_state.page = "rounds"
+        st.rerun()
+
     st.divider()
 
     if st.session_state.player_names:
         st.subheader("Players")
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Show All", use_container_width=True):
-                st.session_state.player_hidden = [False] * len(st.session_state.player_names)
 
-                # Update checkbox widgets
-                for i in range(len(st.session_state.player_names)):
-                    st.session_state[f"sidebar_visible_{i}"] = True
+        # Check if all players are currently visible
+        all_visible = all(not hidden for hidden in st.session_state.player_hidden)
+        btn_label = "Hide All" if all_visible else "Show All"
 
-                st.rerun()
+        if st.button(btn_label, key="toggle_all_players", use_container_width=True):
+            target_visible = not all_visible
+            st.session_state.player_hidden = [not target_visible] * len(st.session_state.player_names)
 
-        with col2:
-            if st.button("Hide All", use_container_width=True):
-                st.session_state.player_hidden = [True] * len(st.session_state.player_names)
+            for i in range(len(st.session_state.player_names)):
+                st.session_state[f"sidebar_visible_{i}"] = target_visible
 
-                # Update checkbox widgets
-                for i in range(len(st.session_state.player_names)):
-                    st.session_state[f"sidebar_visible_{i}"] = False
+            st.rerun()
 
-                st.rerun()
         st.divider()
         for i, name in enumerate(st.session_state.player_names):
 
             key = f"sidebar_visible_{i}"
 
-            # Initialize once
             if key not in st.session_state:
                 st.session_state[key] = not st.session_state.player_hidden[i]
 
@@ -823,7 +729,7 @@ def home_page():
             st.session_state.master_lists = master_lists
             st.session_state.player_hidden = [False] * len(player_names)
             st.session_state.round_num = 0
-            st.session_state.page = "viewer"
+            st.session_state.page = "summary"
             # Update URL
             draft_id = secrets.token_urlsafe(6)
             STORE[draft_id] = data
@@ -831,8 +737,85 @@ def home_page():
             st.query_params["draft"] = draft_id
             st.rerun()
 
+def tally_page():
+    if not st.session_state.master_lists:
+        st.warning("No draft loaded.")
+        return
 
-def viewer_page():
+    sidebar, content = st.columns([1, 5], gap="large")
+
+    with sidebar:
+        fake_sidebar("tally")
+
+    max_rounds = max(len(player) for player in st.session_state.master_lists)
+    single_round = max_rounds <= 1
+
+    # State update helper to keep top/bottom selectors synced
+    def update_tally_round(new_round):
+        st.session_state.round_num = new_round
+        st.session_state.tally_selector_top = new_round
+        st.session_state.tally_selector_bottom = new_round
+
+    def prev_round():
+        if not single_round:
+            update_tally_round((st.session_state.round_num - 1) % max_rounds)
+
+    def next_round():
+        if not single_round:
+            update_tally_round((st.session_state.round_num + 1) % max_rounds)
+
+    def sync_tally_selector(location):
+        selected_val = st.session_state[f"tally_selector_{location}"]
+        update_tally_round(selected_val)
+
+    def tally_navigation(location):
+        left, middle, right = st.columns([1, 2, 1])
+
+        with left:
+            st.button(
+                "⬅ Previous",
+                key=f"tally_prev_{location}",
+                on_click=prev_round,
+                disabled=single_round,
+            )
+
+        with middle:
+            if f"tally_selector_{location}" not in st.session_state:
+                st.session_state[f"tally_selector_{location}"] = st.session_state.round_num
+
+            st.selectbox(
+                "",
+                options=range(max_rounds),
+                format_func=lambda r: f"Round {r + 1}",
+                key=f"tally_selector_{location}",
+                label_visibility="collapsed",
+                disabled=single_round,
+                on_change=sync_tally_selector,
+                kwargs={"location": location},
+            )
+
+        with right:
+            st.button(
+                "Next ➡",
+                key=f"tally_next_{location}",
+                on_click=next_round,
+                disabled=single_round,
+            )
+
+        st.divider()
+
+    with content:
+        tally_navigation("top")
+
+        build_tally(
+            round_num=st.session_state.round_num,
+            show_title=True,
+            players_per_row=3,
+        )
+
+        tally_navigation("bottom")
+
+def rounds_page():
     player_names = st.session_state.player_names
     master_lists = st.session_state.master_lists
     sidebar, content = st.columns([1, 5], gap="large")
@@ -898,7 +881,7 @@ def viewer_page():
         st.divider()
 
     with sidebar:
-        fake_sidebar("viewer")
+        fake_sidebar("rounds")
 
     # ===============================================
     # Main Layout
@@ -1603,11 +1586,14 @@ def icon_path(token: str):
 if st.session_state.page == "home":
     home_page()
 
-elif st.session_state.page == "viewer":
-    viewer_page()
-
 elif st.session_state.page == "summary":
     summary_page()
+
+elif st.session_state.page == "tally":
+    tally_page()
+
+elif st.session_state.page == "rounds":
+    rounds_page()
 
 else:
     # Fallback
