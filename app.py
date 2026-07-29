@@ -106,8 +106,10 @@ defaults = {
     "player_hidden": [],
     "summary_index": 0,
     "round_num": 0,
+    "summary_selector": 0,
     "home_names": [""] * 6,
     "home_texts": [""] * 6,
+    "tally_expanded": True,
 }
 
 for key, value in defaults.items():
@@ -332,45 +334,6 @@ def render_pick(key, value, show_extras=True, show_key=True):
                 unsafe_allow_html=True,
             )
 
-        #
-        # If the description is only icon tokens
-        # (e.g. :carrier::destroyer::destroyer:)
-        # render those underneath the picture.
-        #
-        icon_html = ""
-
-        tokens = []
-
-        for line in description_lines:
-            tokens.extend(re.findall(r":([^:]+):", line))
-
-        if tokens:
-
-            pieces = []
-
-            for token in tokens:
-
-                icon = icon_path(token)
-
-                if icon:
-                    encoded = image_to_base64(icon)
-
-                    pieces.append(
-                        f'<img '
-                        f'src="data:image/png;base64,{encoded}" '
-                        f'alt="{token}" '
-                        f'title="{token}" '
-                        f'style="height:22px;margin:2px;">'
-                    )
-
-            if pieces:
-                icon_html = (
-                    "<div style='text-align:center;"
-                    "margin-top:6px;'>"
-                    + "".join(pieces)
-                    + "</div>"
-                )
-
         if card_image and os.path.exists(card_image):
 
             encoded = image_to_base64(card_image)
@@ -394,8 +357,6 @@ def render_pick(key, value, show_extras=True, show_key=True):
                     "
                 >
             </div>
-
-            {icon_html}
             """, unsafe_allow_html=True)
 
         else:
@@ -482,6 +443,7 @@ def render_pick(key, value, show_extras=True, show_key=True):
         f"</div>",
         unsafe_allow_html=True,
     )
+
     if key == "STARTINGFLEET":
         value = starting_fleet_value(display_lines)
 
@@ -498,8 +460,9 @@ def render_pick(key, value, show_extras=True, show_key=True):
             """,
             unsafe_allow_html=True,
         )
+
     # ---------------------------------------------------
-    # Extras (unchanged)
+    # Extras
     # ---------------------------------------------------
 
     if show_extras:
@@ -561,7 +524,6 @@ def render_pick(key, value, show_extras=True, show_key=True):
                     f"<div style='text-align:center;font-weight:bold'>{rendered_html}</div>",
                     unsafe_allow_html=True,
                 )
-
 def render_description(text):
 
     parts = icon_pattern.split(text)
@@ -586,29 +548,17 @@ def render_description(text):
                 st.write(f":{part}:")
 
 def previous_summary():
-
     total = len(SUMMARY_KEYS)
-
     st.session_state.summary_index = (
         st.session_state.summary_index - 1
     ) % total
 
-    st.session_state.summary_selector = (
-        st.session_state.summary_index
-    )
-
 
 def next_summary():
-
     total = len(SUMMARY_KEYS)
-
     st.session_state.summary_index = (
         st.session_state.summary_index + 1
     ) % total
-
-    st.session_state.summary_selector = (
-        st.session_state.summary_index
-    )
 
 
 def select_summary():
@@ -742,252 +692,274 @@ def clear_home_inputs():
 
         st.session_state[f"name_{i}"] = ""
         st.session_state[f"text_{i}"] = ""
+def fake_sidebar(active_page):
+    titles = {
+        "home": "Draft",
+        "viewer": "Rounds",
+        "summary": "Summary",
+    }
 
-def home_page():
-    left, right = st.columns([1, 5])
+    st.title(titles.get(active_page, "Draft"))
 
-    with left:
-        if st.button("🗑 Clear"):
-            clear_home_inputs()
-            st.rerun()
-    st.title("Draft Visualizer")
-
-    st.write(
-        "Paste each player's card-info channel."
-    )
-
-    with st.form("draft_input"):
-
-        player_names = []
-        master_lists = []
-
-        for i in range(6):
-
-            st.markdown(f"### Player {i+1}")
-
-            name = st.text_input(
-                "Name",
-                key=f"name_{i}",
-                value=st.session_state.home_names[i],
-            )
-
-            text = st.text_area(
-                "Card Info",
-                height=180,
-                key=f"text_{i}",
-                value=st.session_state.home_texts[i],
-            )
-
-            if text.strip():
-
-                player_names.append(
-                    name or f"Player {i+1}"
-                )
-
-                master_lists.append(
-                    DraftConsol(text)
-                )
-                st.session_state.home_names[i] = name
-                st.session_state.home_texts[i] = text
-
-        submitted = st.form_submit_button(
-            "Start Draft"
-        )
-
-    if submitted:
-
-        if not master_lists:
-            st.warning("Enter at least one player.")
-            return
-
-        data = {
-            "player_names": player_names,
-            "texts": [
-                st.session_state.home_texts[i]
-                for i in range(6)
-                if st.session_state.home_texts[i].strip()
-            ]
-        }
-
-        # Load into current session
-        st.session_state.player_names = player_names
-        st.session_state.master_lists = master_lists
-        st.session_state.player_hidden = [False] * len(player_names)
-        st.session_state.round_num = 0
-        st.session_state.page = "viewer"
-
-        # Update URL
-        draft_id = secrets.token_urlsafe(6)
-
-        STORE[draft_id] = data
-
-        st.query_params.clear()
-        st.query_params["draft"] = draft_id
-
-        st.rerun()
-def viewer_page():
-
-    player_names = st.session_state.player_names
-    master_lists = st.session_state.master_lists
-
-    max_rounds = max(len(player) for player in master_lists)
-
-    def prev_round():
-        if max_rounds <= 1:
-            return
-        st.session_state.round_num = (
-                                             st.session_state.round_num - 1
-                                     ) % max_rounds
-        st.session_state.round_selector = st.session_state.round_num
-
-    def next_round():
-        if max_rounds <= 1:
-            return
-        st.session_state.round_num = (
-                                             st.session_state.round_num + 1
-                                     ) % max_rounds
-        st.session_state.round_selector = st.session_state.round_num
-
-    def select_round():
-        if max_rounds <= 1:
-            st.session_state.round_num = 0
-            return
-
-        st.session_state.round_num = st.session_state.round_selector
-    # --------------------
-    # Sidebar
-    # --------------------
-
-    st.sidebar.title("Draft")
-
-    if st.sidebar.button("Home"):
+    if st.button(
+        "Home",
+        disabled=active_page == "home",
+        use_container_width=True,
+    ):
         st.session_state.page = "home"
         st.rerun()
 
-    if st.button("Draft Summary"):
+    if st.button(
+        "Rounds",
+        disabled=active_page == "viewer",
+        use_container_width=True,
+    ):
+        st.session_state.page = "viewer"
+        st.rerun()
+
+    if st.button(
+        "Summary",
+        disabled=active_page == "summary",
+        use_container_width=True,
+    ):
         st.session_state.page = "summary"
         st.rerun()
 
-    st.sidebar.divider()
+    st.divider()
 
-    st.sidebar.subheader("Players")
+    if st.session_state.player_names:
+        st.subheader("Players")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Show All", use_container_width=True):
+                st.session_state.player_hidden = [False] * len(st.session_state.player_names)
 
-    for i, name in enumerate(player_names):
+                # Update checkbox widgets
+                for i in range(len(st.session_state.player_names)):
+                    st.session_state[f"sidebar_visible_{i}"] = True
 
-        visible = st.sidebar.checkbox(
-            name,
-            value=not st.session_state.player_hidden[i],
-            key=f"visible_{i}"
+                st.rerun()
+
+        with col2:
+            if st.button("Hide All", use_container_width=True):
+                st.session_state.player_hidden = [True] * len(st.session_state.player_names)
+
+                # Update checkbox widgets
+                for i in range(len(st.session_state.player_names)):
+                    st.session_state[f"sidebar_visible_{i}"] = False
+
+                st.rerun()
+        st.divider()
+        for i, name in enumerate(st.session_state.player_names):
+
+            key = f"sidebar_visible_{i}"
+
+            # Initialize once
+            if key not in st.session_state:
+                st.session_state[key] = not st.session_state.player_hidden[i]
+
+            st.checkbox(
+                name,
+                key=key,
+            )
+
+            st.session_state.player_hidden[i] = not st.session_state[key]
+def home_page():
+    sidebar, content = st.columns([1,5], gap="large")
+    with sidebar:
+        fake_sidebar("home")
+    with content:
+        top_left, _ = st.columns([1, 5])
+        with top_left:
+            if st.button("🗑 Clear"):
+                clear_home_inputs()
+                st.rerun()
+        st.title("Draft Visualizer")
+        st.write(
+            "Paste each player's card-info channel."
         )
+        with st.form("draft_input"):
+            player_names = []
+            master_lists = []
+            for i in range(6):
+                st.markdown(f"### Player {i+1}")
+                name = st.text_input(
+                    "Name",
+                    key=f"name_{i}",
+                    value=st.session_state.home_names[i],
+                )
+                text = st.text_area(
+                    "Card Info",
+                    height=180,
+                    key=f"text_{i}",
+                    value=st.session_state.home_texts[i],
+                )
+                if text.strip():
+                    player_names.append(
+                        name or f"Player {i+1}"
+                    )
+                    master_lists.append(
+                        DraftConsol(text)
+                    )
+                    st.session_state.home_names[i] = name
+                    st.session_state.home_texts[i] = text
+            submitted = st.form_submit_button(
+                "Start Draft"
+            )
+        if submitted:
+            if not master_lists:
+                st.warning("Enter at least one player.")
+                return
+            data = {
+                "player_names": player_names,
+                "texts": [
+                    st.session_state.home_texts[i]
+                    for i in range(6)
+                    if st.session_state.home_texts[i].strip()
+                ]
+            }
+            # Load into current session
+            st.session_state.player_names = player_names
+            st.session_state.master_lists = master_lists
+            st.session_state.player_hidden = [False] * len(player_names)
+            st.session_state.round_num = 0
+            st.session_state.page = "viewer"
+            # Update URL
+            draft_id = secrets.token_urlsafe(6)
+            STORE[draft_id] = data
+            st.query_params.clear()
+            st.query_params["draft"] = draft_id
+            st.rerun()
 
-        st.session_state.player_hidden[i] = not visible
 
-    st.sidebar.divider()
+def viewer_page():
+    player_names = st.session_state.player_names
+    master_lists = st.session_state.master_lists
+    sidebar, content = st.columns([1, 5], gap="large")
 
-    # ==================================================
-    # Navigation goes HERE
-    # ==================================================
+    max_rounds = max(len(player) for player in master_lists)
+    single_round = max_rounds <= 1  # Moved up so callbacks can access it
 
-    if "round_selector" not in st.session_state:
-        st.session_state.round_selector = st.session_state.round_num
+    # 1. Centralize the state update for all navigation changes
+    def update_round_state(new_round):
+        st.session_state.round_num = new_round
+        # Update both widget keys so they stay visually synced
+        st.session_state.selector_top = new_round
+        st.session_state.selector_bottom = new_round
 
-    single_round = max_rounds <= 1
+    def prev_round():
+        if not single_round:
+            update_round_state((st.session_state.round_num - 1) % max_rounds)
 
-    left, middle, right = st.columns([1, 2, 1])
+    def next_round():
+        if not single_round:
+            update_round_state((st.session_state.round_num + 1) % max_rounds)
 
-    with left:
-        st.button(
-            "⬅ Previous",
-            on_click=prev_round,
-            disabled=single_round,
-        )
+    # 2. Callback for when either selectbox changes
+    def sync_selector(location):
+        selected_val = st.session_state[f"selector_{location}"]
+        update_round_state(selected_val)
 
-    with middle:
-        st.selectbox(
-            "",
-            options=list(range(max_rounds)),
-            key="round_selector",
-            format_func=lambda x: f"Round {x + 1}",
-            label_visibility="collapsed",
-            on_change=select_round,
-            disabled=single_round,
-        )
+    def round_navigation(location):
+        left, middle, right = st.columns([1, 2, 1])
 
-    with right:
-        st.button(
-            "Next ➡",
-            on_click=next_round,
-            disabled=single_round,
-        )
+        with left:
+            st.button(
+                "⬅ Previous",
+                key=f"prev_{location}",
+                on_click=prev_round,
+                disabled=single_round,
+            )
 
-    st.markdown(
-        "<hr style='margin:6px 0 10px 0;'>",
-        unsafe_allow_html=True,
-    )
-    round_num = st.session_state.round_num
-    # ==================================================
-    # Player Grid goes HERE
-    # ==================================================
+        with middle:
+            # Initialize the session state for this widget if it doesn't exist
+            if f"selector_{location}" not in st.session_state:
+                st.session_state[f"selector_{location}"] = st.session_state.round_num
+
+            st.selectbox(
+                "",
+                options=range(max_rounds),
+                format_func=lambda r: f"Round {r + 1}",
+                key=f"selector_{location}",
+                label_visibility="collapsed",
+                disabled=single_round,
+                on_change=sync_selector,  # Fire callback before rerun
+                kwargs={"location": location}  # Pass which selector triggered it
+            )
+
+        with right:
+            st.button(
+                "Next ➡",
+                key=f"next_{location}",
+                on_click=next_round,
+                disabled=single_round,
+            )
+
+        st.divider()
+
+    with sidebar:
+        fake_sidebar("viewer")
 
     # ===============================================
     # Main Layout
     # ===============================================
+    round_num = st.session_state.round_num
+    with content:
 
-    viewer_col, tally_col = st.columns([3, 1], gap="large")
+        round_navigation("top")
 
-    with viewer_col:
-
-        players = []
-
-        for i, player in enumerate(master_lists):
-
-            if st.session_state.player_hidden[i]:
-                continue
-
-            players.append(
-                (
-                    player_names[i],
-                    player
+        viewer_col, tally_col = st.columns([3, 1], gap="large")
+        with viewer_col:
+            players = []
+            for i, player in enumerate(master_lists):
+                if st.session_state.player_hidden[i]:
+                    continue
+                players.append(
+                    (
+                        player_names[i],
+                        player
+                    )
                 )
-            )
-
-        rows = [
-            players[i:i + 2]
-            for i in range(0, len(players), 2)
-        ]
-
-        for row in rows:
-
-            cols = st.columns(2)
-
-            for col, (name, player) in zip(cols, row):
-
-                with col:
-
-                    if round_num < len(player):
-                        data = player[round_num]
-                    else:
-                        data = {"NO PICK": "None"}
-
-                    render_player(name, data)
-
-    with tally_col:
-
-        build_tally(round_num)
+            rows = [
+                players[i:i + 2]
+                for i in range(0, len(players), 2)
+            ]
+            for row in rows:
+                cols = st.columns(2)
+                for col, (name, player) in zip(cols, row):
+                    with col:
+                        if round_num < len(player):
+                            data = player[round_num]
+                        else:
+                            data = {"NO PICK": "None"}
+                        render_player(name, data)
+        with tally_col:
+            build_tally(round_num)
+        round_navigation("bottom")
 
 def build_tally(round_num, show_title=True, players_per_row=None):
+    if "tally_expanded" not in st.session_state:
+        st.session_state.tally_expanded = True
+
     if show_title:
-        st.header("Draft Tally")
+        # Create columns so the button sits right next to the header
+        title_col, btn_col = st.columns([2, 1])
+        with title_col:
+            st.header("Draft Tally")
+        with btn_col:
+            # Dynamic label based on current state
+            btn_label = "Collapse All" if st.session_state.tally_expanded else "Expand All"
+            if st.button(btn_label, key="toggle_tally_all", use_container_width=True):
+                st.session_state.tally_expanded = not st.session_state.tally_expanded
+                st.rerun()
 
     player_names = st.session_state.player_names
     master_lists = st.session_state.master_lists
-
     visible_players = [
         (name, player)
         for i, (name, player) in enumerate(zip(player_names, master_lists))
         if not st.session_state.player_hidden[i]
     ]
-
     if players_per_row is None:
         rows = [[player] for player in visible_players]
     else:
@@ -995,54 +967,36 @@ def build_tally(round_num, show_title=True, players_per_row=None):
             visible_players[i:i + players_per_row]
             for i in range(0, len(visible_players), players_per_row)
         ]
-
     for row in rows:
-
         cols = st.columns(len(row), gap="large")
-
         for col, (player_name, player) in zip(cols, row):
-
             with col:
-
-                with st.expander(player_name, expanded=True):
-
+                # Use session state here to expand or collapse all
+                with st.expander(player_name, expanded=st.session_state.tally_expanded):
                     grouped = {}
-
                     # -----------------------------
                     # Build grouped data
                     # -----------------------------
                     for r in range(round_num + 1):
-
                         if r >= len(player):
                             continue
-
                         for key, value in player[r].items():
-
                             lines = value.splitlines()
                             first = lines[0]
-
                             grouped.setdefault(key, []).append((r + 1, first))
-
                             for extra_key, extra_name, draft_type in extract_extra_components(lines):
-
                                 display_name = re.sub(r":[^:]+:", "", extra_name).strip()
-
                                 if draft_type:
                                     display_name = f"{display_name} - {draft_type}"
-
                                 grouped.setdefault(extra_key, []).append(
                                     (r + 1, display_name)
                                 )
-
                     all_keys = set()
-
                     for rnd in player:
                         all_keys.update(rnd.keys())
-
                     for key in ("Replacement Component", "Additional Component"):
                         if key in grouped:
                             all_keys.add(key)
-
                     ordered = sorted(
                         all_keys,
                         key=lambda x: (
@@ -1051,48 +1005,36 @@ def build_tally(round_num, show_title=True, players_per_row=None):
                             else len(TALLY_KEY_ORDER)
                         )
                     )
-
                     sections = []
-
                     for key in ordered:
-
                         total = sum(key in rnd for rnd in player)
                         current = len(grouped.get(key, []))
-
                         if key in ("Replacement Component", "Additional Component"):
                             heading = key
                         else:
                             heading = f"{key} ({current}/{total})"
-
                         entries = [
                             (r, text, r == round_num + 1)
                             for r, text in grouped.get(key, [])
                         ]
-
                         sections.append({
                             "heading": heading,
                             "entries": entries,
                             "height": 1 + len(entries),
                         })
-
                     total_height = sum(s["height"] for s in sections)
-
                     running = 0
                     split = len(sections)
-
                     for i, section in enumerate(sections):
                         running += section["height"]
                         if running >= total_height / 2:
                             split = i + 1
                             break
-
                     left_sections = sections[:split]
                     right_sections = sections[split:]
 
                     def render_sections(section_list):
-
                         for section in section_list:
-
                             st.markdown(
                                 f"""
                                 <div style="
@@ -1106,11 +1048,8 @@ def build_tally(round_num, show_title=True, players_per_row=None):
                                 """,
                                 unsafe_allow_html=True,
                             )
-
                             for r, text, current in section["entries"]:
-
                                 bg = "#00ad2a" if current else "transparent"
-
                                 st.markdown(
                                     f"""
                                     <div style="
@@ -1126,55 +1065,40 @@ def build_tally(round_num, show_title=True, players_per_row=None):
                                     """,
                                     unsafe_allow_html=True,
                                 )
-
                     left_col, right_col = st.columns(2, gap="small")
-
                     with left_col:
                         render_sections(left_sections)
-
                     with right_col:
                         render_sections(right_sections)
 
 def build_summary():
-
     player_names = st.session_state.player_names
     master_lists = st.session_state.master_lists
-
     grouped = {}
-
     # --------------------------------------------
     # Gather every pick by key, then by player
     # --------------------------------------------
     for i, (player_name, player) in enumerate(zip(player_names, master_lists)):
-
         if st.session_state.player_hidden[i]:
             continue
-
         for rnd, draft_round in enumerate(player, start=1):
-
             for key, value in draft_round.items():
-
                 lines = value.splitlines()
                 name = lines[0] if lines else ""
-
                 grouped.setdefault(key, {})
                 grouped[key].setdefault(player_name, [])
                 grouped[key][player_name].append(
                     (rnd, name)
                 )
-
                 # Include replacement/additional components
                 for extra_key, extra_name, draft_type in extract_extra_components(lines):
-
                     extra_name = re.sub(r":[^:\s]+:", "", extra_name)
                     extra_name = re.sub(r"\s+", " ", extra_name).strip()
-
                     grouped.setdefault(extra_key, {})
                     grouped[extra_key].setdefault(player_name, [])
                     grouped[extra_key][player_name].append(
                         (rnd, extra_name)
                     )
-
     # --------------------------------------------
     # Order keys
     # --------------------------------------------
@@ -1424,255 +1348,249 @@ def summary_page():
     if not st.session_state.master_lists:
         st.warning("No draft loaded.")
         return
+    sidebar, content = st.columns([1, 5], gap="large")
 
-    if "summary_selector" not in st.session_state:
-        st.session_state.summary_selector = (
-            st.session_state.summary_index
-        )
+    # 1. Centralize the state update for summary navigation
+    def update_summary_state(new_index):
+        st.session_state.summary_index = new_index
+        # Keep both top and bottom selectors visually synced
+        st.session_state.summary_selector_top = new_index
+        st.session_state.summary_selector_bottom = new_index
 
-    # --------------------
-    # Sidebar
-    # --------------------
+    def prev_summary_callback():
+        total = len(SUMMARY_KEYS)
+        update_summary_state((st.session_state.summary_index - 1) % total)
 
-    st.sidebar.title("Draft")
+    def next_summary_callback():
+        total = len(SUMMARY_KEYS)
+        update_summary_state((st.session_state.summary_index + 1) % total)
 
-    if st.sidebar.button("Home"):
-        st.session_state.page = "home"
-        st.rerun()
+    # 2. Callback for when either selectbox changes
+    def sync_summary_selector(location):
+        selected_val = st.session_state[f"summary_selector_{location}"]
+        update_summary_state(selected_val)
 
-    st.title("Draft Summary")
-
-    if st.button("⬅ Return to Draft"):
-        st.session_state.page = "viewer"
-        st.rerun()
+    with sidebar:
+        fake_sidebar("summary")
 
     #
     # Player visibility
     #
-
     st.sidebar.divider()
-    st.sidebar.subheader("Players")
 
-    for i, name in enumerate(st.session_state.player_names):
+    # 3. Add the 'location' parameter to the function definition
+    def summary_navigation(location):
 
-        visible = st.sidebar.checkbox(
-            name,
-            value=not st.session_state.player_hidden[i],
-            key=f"summary_visible_{i}"
-        )
+        left, middle, right = st.columns([1, 2, 1])
 
-        st.session_state.player_hidden[i] = not visible
-
-    #
-    # Navigation
-    #
-
-    left, middle, right = st.columns([1,2,1])
-
-    with left:
-
-        st.button(
-            "⬅ Previous",
-            on_click=previous_summary
-        )
-
-    with middle:
-
-        st.selectbox(
-            "",
-            options=list(range(len(SUMMARY_KEYS))),
-            key="summary_selector",
-            format_func=lambda x: SUMMARY_KEYS[x],
-            label_visibility="collapsed",
-            on_change=select_summary,
-        )
-
-    with right:
-
-        st.button(
-            "Next ➡",
-            on_click=next_summary
-        )
-
-    st.divider()
-
-    current_key = SUMMARY_KEYS[
-        st.session_state.summary_index
-    ]
-
-    #
-    # Player cards
-    #
-
-    players = []
-
-    for i, player in enumerate(st.session_state.master_lists):
-
-        if st.session_state.player_hidden[i]:
-            continue
-
-        players.append(
-            (
-                st.session_state.player_names[i],
-                player
+        with left:
+            st.button(
+                "⬅ Previous",
+                on_click=prev_summary_callback,
+                key=f"summary_prev_{location}", # Ensure unique button keys
             )
-        )
-    # -------------------------------------------------
-    # Resource totals for proportional bars
-    # -------------------------------------------------
 
-    resource_totals = {}
-    influence_totals = {}
+        with middle:
+            if f"summary_selector_{location}" not in st.session_state:
+                st.session_state[f"summary_selector_{location}"] = st.session_state.summary_index
 
-    if current_key == "TILES":
+            st.selectbox(
+                "",
+                options=range(len(SUMMARY_KEYS)),
+                format_func=lambda i: SUMMARY_KEYS[i],
+                key=f"summary_selector_{location}",
+                label_visibility="collapsed",
+                on_change=sync_summary_selector,  # Fire callback before rerun
+                kwargs={"location": location}     # Pass which selector triggered it
+            )
 
-        for player_name, player in players:
-            results = find_summary_picks(player, "TILES")
+        with right:
+            st.button(
+                "Next ➡",
+                on_click=next_summary_callback,
+                key=f"summary_next_{location}", # Ensure unique button keys
+            )
 
-            other_tiles = [
-                r for r in results
-                if r[1] != "HOMESYSTEM"
-            ]
+        st.divider()
 
-            resources, influence = slice_totals(other_tiles)
+    with content:
+        summary_navigation("top")
+        current_key = SUMMARY_KEYS[st.session_state.summary_index]
 
-            resource_totals[player_name] = resources
-            influence_totals[player_name] = influence
+        #
+        # Player cards
+        #
 
-            max_resources = max(resource_totals.values(), default=1)
-            max_influence = max(influence_totals.values(), default=1)
+        players = []
+
+        for i, player in enumerate(st.session_state.master_lists):
+
+            if st.session_state.player_hidden[i]:
+                continue
+
+            players.append(
+                (
+                    st.session_state.player_names[i],
+                    player
+                )
+            )
+        # -------------------------------------------------
+        # Resource totals for proportional bars
+        # -------------------------------------------------
+
+        resource_totals = {}
+        influence_totals = {}
+
+        if current_key == "TILES":
+
+            for player_name, player in players:
+                results = find_summary_picks(player, "TILES")
+
+                other_tiles = [
+                    r for r in results
+                    if r[1] != "HOMESYSTEM"
+                ]
+
+                resources, influence = slice_totals(other_tiles)
+
+                resource_totals[player_name] = resources
+                influence_totals[player_name] = influence
+
+                max_resources = max(resource_totals.values(), default=1)
+                max_influence = max(influence_totals.values(), default=1)
 
 
-    rows = [
-        players[i:i+2]
-        for i in range(0, len(players), 2)
-    ]
+        rows = [
+            players[i:i+2]
+            for i in range(0, len(players), 2)
+        ]
 
-    for row in rows:
+        for row in rows:
 
-        cols = st.columns(2)
+            cols = st.columns(2)
 
-        for col, (player_name, player) in zip(cols, row):
+            for col, (player_name, player) in zip(cols, row):
 
-            with col:
+                with col:
 
-                with st.container(border=True):
+                    with st.container(border=True):
 
-                    st.markdown(f"### {player_name}")
+                        st.markdown(f"### {player_name}")
 
-                    results = find_summary_picks(player, current_key)
+                        results = find_summary_picks(player, current_key)
 
-                    if not results:
-                        st.info("No Pick")
-                        continue
-
-                    if current_key == "TILES":
-                        home_tiles = [r for r in results if r[1] == "HOMESYSTEM"]
-                        other_tiles = [r for r in results if r[1] != "HOMESYSTEM"]
-                        groups = [home_tiles, other_tiles]
-                    else:
-                        groups = [results]
-
-                    for group_index, group in enumerate(groups):
-
-                        if not group:
+                        if not results:
+                            st.info("No Pick")
                             continue
 
-                        # Divider before non-home-system tiles
-                        if group_index:
-                            st.markdown(
-                                "<hr style='margin:10px 0;'>",
-                                unsafe_allow_html=True,
-                            )
+                        if current_key == "TILES":
+                            home_tiles = [r for r in results if r[1] == "HOMESYSTEM"]
+                            other_tiles = [r for r in results if r[1] != "HOMESYSTEM"]
+                            groups = [home_tiles, other_tiles]
+                        else:
+                            groups = [results]
+
+                        for group_index, group in enumerate(groups):
+
+                            if not group:
+                                continue
+
+                            # Divider before non-home-system tiles
+                            if group_index:
+                                st.markdown(
+                                    "<hr style='margin:10px 0;'>",
+                                    unsafe_allow_html=True,
+                                )
 
 
-                        for start in range(0, len(group), 3):
+                            for start in range(0, len(group), 3):
 
-                            chunk = group[start:start + 3]
+                                chunk = group[start:start + 3]
 
-                            if len(chunk) == 3:
-                                render_cols = st.columns(3)
-                            elif len(chunk) == 2:
-                                c1, c2, c3, c4 = st.columns([1, 2, 2, 1])
-                                render_cols = [c2, c3]
-                            else:
-                                c1, c2, c3 = st.columns([1, 2, 1])
-                                render_cols = [c2]
+                                if len(chunk) == 3:
+                                    render_cols = st.columns(3)
+                                elif len(chunk) == 2:
+                                    c1, c2, c3, c4 = st.columns([1, 2, 2, 1])
+                                    render_cols = [c2, c3]
+                                else:
+                                    c1, c2, c3 = st.columns([1, 2, 1])
+                                    render_cols = [c2]
 
-                            for render_col, (rnd, key, value, component_type) in zip(render_cols, chunk):
-                                with render_col:
+                                for render_col, (rnd, key, value, component_type) in zip(render_cols, chunk):
+                                    with render_col:
 
-                                    render_pick(
-                                        key,
-                                        value,
-                                        show_extras=True,
-                                        show_key=False,
-                                    )
+                                        render_pick(
+                                            key,
+                                            value,
+                                            show_extras=False,
+                                            show_key=False,
+                                        )
 
-                                    if component_type:
+                                        if component_type:
+                                            st.markdown(
+                                                f"""
+                                                    <div style="
+                                                        text-align:center;
+                                                        color:#777;
+                                                        font-size:0.8rem;
+                                                        margin-top:2px;
+                                                    ">
+                                                        {component_type}
+                                                    </div>
+                                                                    """,
+                                                unsafe_allow_html=True,
+                                            )
+
                                         st.markdown(
                                             f"""
                                                 <div style="
                                                     text-align:center;
-                                                    color:#777;
-                                                    font-size:0.8rem;
-                                                    margin-top:2px;
+                                                    color:gray;
+                                                    margin-top:4px;
                                                 ">
-                                                    {component_type}
+                                                    Round {rnd}
                                                 </div>
-                                                                """,
+                                                """,
                                             unsafe_allow_html=True,
                                         )
+                        #
+                        # Resource / Influence bars
+                        #
+                        if current_key == "TILES":
+                            resources = resource_totals[player_name]
+                            influence = influence_totals[player_name]
 
-                                    st.markdown(
-                                        f"""
-                                            <div style="
-                                                text-align:center;
-                                                color:gray;
-                                                margin-top:4px;
-                                            ">
-                                                Round {rnd}
-                                            </div>
-                                            """,
-                                        unsafe_allow_html=True,
-                                    )
-                    #
-                    # Resource / Influence bars
-                    #
-                    if current_key == "TILES":
-                        resources = resource_totals[player_name]
-                        influence = influence_totals[player_name]
-
-                        resource_percent = (
-                            resources / max_resources
-                            if max_resources else 0
-                        )
-
-                        influence_percent = (
-                            influence / max_influence
-                            if max_influence else 0
-                        )
-
-                        left, right = st.columns(2)
-
-                        with left:
-                            st.markdown(
-                                f"<div style='text-align:center;font-size:0.9rem;'>"
-                                f"Resources <b>{resources}</b></div>",
-                                unsafe_allow_html=True,
+                            resource_percent = (
+                                resources / max_resources
+                                if max_resources else 0
                             )
-                            stat_bar(resource_percent, "#d4af37")  # gold
 
-                        with right:
-                            st.markdown(
-                                f"<div style='text-align:center;font-size:0.9rem;'>"
-                                f"Influence <b>{influence}</b></div>",
-                                unsafe_allow_html=True,
+                            influence_percent = (
+                                influence / max_influence
+                                if max_influence else 0
                             )
-                            stat_bar(influence_percent, "#4a90e2")  # blue
 
-                        st.markdown("<div style='height:8px'></div>",
-                                    unsafe_allow_html=True)
+                            left, right = st.columns(2)
+
+                            with left:
+                                st.markdown(
+                                    f"<div style='text-align:center;font-size:0.9rem;'>"
+                                    f"Resources <b>{resources}</b></div>",
+                                    unsafe_allow_html=True,
+                                )
+                                stat_bar(resource_percent, "#d4af37")  # gold
+
+                            with right:
+                                st.markdown(
+                                    f"<div style='text-align:center;font-size:0.9rem;'>"
+                                    f"Influence <b>{influence}</b></div>",
+                                    unsafe_allow_html=True,
+                                )
+                                stat_bar(influence_percent, "#4a90e2")  # blue
+
+                            st.markdown("<div style='height:8px'></div>",
+                                        unsafe_allow_html=True)
+        summary_navigation("bottom")
 
 def image_to_base64(path):
 
